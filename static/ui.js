@@ -8362,6 +8362,7 @@ function lockComposerForClarify(placeholderText){
     _composerLockState={
       disabled: input.disabled,
       placeholder: input.placeholder,
+      text: placeholderText || null,
     };
   }
   input.disabled=true;
@@ -8439,9 +8440,18 @@ function _applyBusyComposerPlaceholder(){
   const input=$('msg');
   if(!input) return;
   if(_compressionPlaceholderSaved!==null) return;
+  if(_composerLockState){
+    // A clarify-style lock owns the placeholder (e.g. a question prompt).
+    // Re-assert the lock's own text (not the pre-lock placeholder) so the
+    // locale repaint pass (applyBotName inside applyLocaleToDOM) cannot
+    // stomp it and the clarify prompt survives a language switch.
+    const lockedText=typeof _composerLockState.text==='string'?_composerLockState.text:_composerLockState.placeholder;
+    if(typeof lockedText==='string') input.placeholder=lockedText;
+    return;
+  }
   if(input.disabled) return;
   if(_composerHasContent()) return;
-  const idlePlaceholder='Message '+assistantDisplayName()+'\u2026';
+  const idlePlaceholder=(typeof t==='function')?t('composer_placeholder_idle',assistantDisplayName()):('Message '+assistantDisplayName()+'\u2026');
   if(!window._showBusyPlaceholderHint||!S.busy){
     input.placeholder=idlePlaceholder;
     return;
