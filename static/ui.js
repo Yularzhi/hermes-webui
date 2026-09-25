@@ -8586,6 +8586,11 @@ function lockComposerForClarify(placeholderText){
       placeholder: input.placeholder,
       text: placeholderText || null,
     };
+  }else{
+    // A second clarify can replace the prompt without unlocking first; the
+    // locale repaint restores _composerLockState.text, so it must track the
+    // CURRENT question or the composer describes the previous one.
+    _composerLockState.text=placeholderText||null;
   }
   input.disabled=true;
   if(placeholderText) input.placeholder=placeholderText;

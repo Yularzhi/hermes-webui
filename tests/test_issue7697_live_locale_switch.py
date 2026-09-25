@@ -222,6 +222,28 @@ def main():
             )
             failures.extend(r)
 
+            # 5) A second clarify that replaces the prompt WITHOUT unlocking
+            #    first must not let the repaint restore the previous question
+            #    (_composerLockState.text has to track the current one).
+            r = page.evaluate(
+                """() => {
+                  const fail = [];
+                  setLocale('ru');
+                  lockComposerForClarify('FIRST-QUESTION');
+                  applyLocaleToDOM();
+                  if (document.getElementById('msg').placeholder !== 'FIRST-QUESTION')
+                    fail.push('[relock] the first prompt was not applied');
+                  lockComposerForClarify('SECOND-QUESTION');
+                  applyLocaleToDOM();
+                  const got = document.getElementById('msg').placeholder;
+                  if (got !== 'SECOND-QUESTION') fail.push(`[relock] placeholder: expected 'SECOND-QUESTION', got ${JSON.stringify(got)}`);
+                  unlockComposerForClarify();
+                  applyLocaleToDOM();
+                  return fail;
+                }"""
+            )
+            failures.extend(r)
+
             meaningful = [(k, t) for (k, t) in errors if not _is_benign(t)]
             for kind, txt in meaningful:
                 failures.append(f"[runtime] {kind}: {txt}")
