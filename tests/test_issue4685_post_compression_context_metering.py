@@ -42,6 +42,11 @@ global._syncMobileCtxDisplay = () => {{}};
 global._setCtxCompressButton = () => {{}};
 global._fmtTokens = value => String(value);
 global.t = {T_STUB};
+// #7697: _syncCtxIndicator records the resolved input it paints from so a locale
+// repaint reuses that snapshot; its helpers live outside the extracted slice.
+global._ctxIndicatorScopeKey = () => 'stub|stub';
+let _ctxIndicatorSnapshot = null;
+let _ctxIndicatorSnapshotScope = '';
 {indicator}
 _syncCtxIndicator({json.dumps(usage)});
 console.log(JSON.stringify({{percent: nodes.ctxPercent.textContent, label: nodes.ctxIndicator['aria-label'], usage: nodes.ctxTooltipUsage.textContent, tokens: nodes.ctxTooltipTokens.textContent}}));
