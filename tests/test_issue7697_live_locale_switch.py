@@ -318,13 +318,15 @@ def main():
                     fail.push('[compression/ru-done] the pre-compression EN text came back');
 
                   // A message typed while compression ran must not leave the stale
-                  // guidance behind once compression finishes.
+                  // guidance behind once the field is cleared: updateSendBtn runs on
+                  // every composer change and re-applies the placeholder.
                   msg.value = 'queued while compressing';
                   setCompressionUi({automatic:true, phase:'running', sessionId:sid});
                   setCompressionUi({automatic:true, phase:'done', sessionId:sid});
                   msg.value = '';
+                  updateSendBtn();
                   if (msg.placeholder !== idle())
-                    fail.push(`[compression/queued] stale guidance survived completion: ${JSON.stringify(msg.placeholder)}`);
+                    fail.push(`[compression/queued] stale guidance survived clearing the draft: ${JSON.stringify(msg.placeholder)}`);
 
                   clearCompressionUi();
                   setLocale('en');

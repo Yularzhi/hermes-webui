@@ -8573,6 +8573,10 @@ function setComposerStatus(t,timeoutMs){
 
 let _composerLockState=null;
 let _compressionPlaceholderSaved=null;
+// What _compressionPlaceholderSaved was: 'idle'/'busy' means it came from a
+// locale-dependent hint (so restoring it verbatim would bring back the OLD
+// language), 'literal' means custom text that must come back unchanged.
+let _compressionPlaceholderSavedKind='literal';
 
 function lockComposerForClarify(placeholderText){
   const input=$('msg');
@@ -8675,6 +8679,22 @@ function _compressionPlaceholderText(){
   return (typeof t==='function')?(t('composer_compression_will_queue')||fallback):fallback;
 }
 
+// Classify a placeholder so a restore can tell a locale-derived string (idle or
+// busy hint — must be re-rendered in the CURRENT locale) from custom text that
+// has to come back verbatim (#7697 review).
+function _composerPlaceholderKind(text){
+  if(typeof text!=='string'||!text) return 'literal';
+  const idleFallback='Message '+assistantDisplayName()+'\u2026';
+  const idle=(typeof t==='function')?t('composer_placeholder_idle',assistantDisplayName()):idleFallback;
+  if(text===idle||text===idleFallback) return 'idle';
+  if(typeof t!=='function') return 'literal';
+  for(const key of ['composer_placeholder_busy_interrupt','composer_placeholder_busy_steer','composer_placeholder_busy_queue']){
+    const val=t(key);
+    if(val&&val!==key&&text===val) return 'busy';
+  }
+  return 'literal';
+}
+
 // Single owner of the composer placeholder. Precedence:
 //   1. clarify-style lock  (_composerLockState.text — a live user prompt)
 //   2. auto-compression guidance (while _compressionPlaceholderSaved!==null)
@@ -8682,7 +8702,7 @@ function _compressionPlaceholderText(){
 // Every locale repaint goes through here, so switching language while an
 // instruction is active repaints THAT instruction instead of replacing it with
 // the idle text (#7697 review).
-function _refreshComposerPlaceholder(force){
+function _refreshComposerPlaceholder(){
   const input=$('msg');
   if(!input) return;
   if(_composerLockState){
@@ -8693,10 +8713,10 @@ function _refreshComposerPlaceholder(force){
     input.placeholder=_compressionPlaceholderText();
     return;
   }
-  _applyBusyComposerPlaceholder(force);
+  _applyBusyComposerPlaceholder();
 }
 
-function _applyBusyComposerPlaceholder(force){
+function _applyBusyComposerPlaceholder(){
   const input=$('msg');
   if(!input) return;
   if(_compressionPlaceholderSaved!==null) return;
@@ -8709,8 +8729,8 @@ function _applyBusyComposerPlaceholder(force){
     if(typeof lockedText==='string') input.placeholder=lockedText;
     return;
   }
-  if(!force&&input.disabled) return;
-  if(!force&&_composerHasContent()) return;
+  if(input.disabled) return;
+  if(_composerHasContent()) return;
   const idlePlaceholder=(typeof t==='function')?t('composer_placeholder_idle',assistantDisplayName()):('Message '+assistantDisplayName()+'\u2026');
   if(!window._showBusyPlaceholderHint||!S.busy){
     input.placeholder=idlePlaceholder;
@@ -15438,20 +15458,22 @@ function isCompressionUiRunning(){
 function _restoreCompressionPlaceholder(){
   if(_compressionPlaceholderSaved===null) return;
   const saved=_compressionPlaceholderSaved;
+  const savedKind=_compressionPlaceholderSavedKind;
   _compressionPlaceholderSaved=null;
+  _compressionPlaceholderSavedKind='literal';
   const _input=$('msg');
   if(!_input) return;
-  if(saved===''){
-    // An explicitly empty placeholder stays empty instead of gaining idle text
-    // that was never there.
-    _input.placeholder='';
+  if(savedKind==='literal'){
+    // Custom text (or a clarify prompt) — restore exactly what was there.
+    _input.placeholder=saved;
     return;
   }
-  // Never restore the pre-compression text verbatim: after a live locale switch
-  // it is written in the OLD language. Recompute from the current state/locale
-  // (clarify lock > busy hint > idle) instead. `force` keeps a stale hint from
-  // resurfacing when the composer still holds text the user queued (#7697 review).
-  _refreshComposerPlaceholder(true);
+  // A locale-derived placeholder (idle / busy hint) must come back in the
+  // CURRENT locale: restoring the saved string verbatim would resurrect the
+  // language the user has since switched away from. Reuse the canonical
+  // placeholder pass (clear of the compression marker, so it recomputes) —
+  // that keeps the clarify-lock and draft guards in one place.
+  _applyBusyComposerPlaceholder();
 }
 function clearCompressionUi(){
   window._compressionUi=null;
@@ -15476,6 +15498,7 @@ function setCompressionUi(state){
     const _input=$('msg');
     if(_input&&_compressionPlaceholderSaved===null){
       _compressionPlaceholderSaved=_input.placeholder;
+      _compressionPlaceholderSavedKind=_composerPlaceholderKind(_input.placeholder);
       _input.placeholder=_compressionPlaceholderText();
     }
   } else {
