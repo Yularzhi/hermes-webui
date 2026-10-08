@@ -5,6 +5,14 @@
 
 ### Added
 
+- **Middle-click or Ctrl/Cmd-click a conversation in the sidebar to open it in a new tab.** Works for top-level rows
+  and for nested sub-conversations (a child of a compressed conversation opens the child itself, also after a refresh),
+  keeps each tab on its own profile, and leaves plain clicks, the action menu and touch gestures unchanged. Thanks
+  @red4711. (#7429)
+
+- **French voices for Edge text-to-speech.** Nine French Edge TTS voices are allowed and listed in Settings, grouped by
+  language, with the child voice labelled as such. Thanks @ruizanthony. (#7444)
+
 - **Extensions can add a small action to each message without touching transcript DOM.** A new
   `ext.messages.registerAction({ id, label, icon, roles, getPressed, onInvoke })` on the boot-trusted extension handle
   lets an extension put a Core-rendered `pin`, `bookmark` or `star` button after the built-in actions on settled user
@@ -126,6 +134,25 @@
   @laitekin. (#7297, fixes #7294)
 
 ### Fixed
+
+- **A workspace panel you closed stays closed.** On phones, the on-screen keyboard (a viewport resize) no longer
+  reopens the workspace panel after you dismissed it. File and artifact previews are now owned by the open that started
+  them: a slow preview that finishes after you switched conversations, opened another file or closed the panel no longer
+  pops the panel back open or overwrites the newer selection, and a slow HTML preview still opens. HTML previews are also
+  downloaded once instead of twice. Thanks @sand01chi. (#6710)
+
+- **The auto-scroll setting is easier to find and understand.** Settings → Appearance's "Auto-follow new content" is
+  now "Auto-scroll to new content" with clearer helper text in 15 languages, and searching Settings for "autoscroll",
+  "auto-follow", "sticky" or "bottom" finds it. The setting itself and its default are unchanged. Thanks @webtecnica. (#6248)
+- **Portuguese extension trust warning reads correctly.** The Extensions trust-model text in Portuguese is rewritten in
+  clear, correct Portuguese with the same five facts (same origin, same authenticated APIs, browser-only settings, not for
+  secrets, load only trusted local folders). Thanks @angelusbr. (#7989)
+
+- **Gateway-backend browser turns no longer hang on a run-events stream that only sends keepalives.** A wall-clock
+  watchdog re-checks the run's status when the event stream makes no real progress for about two minutes: a finished
+  run settles from that status, and a running one reconnects from the last event without repeating tokens. A Gateway
+  that keeps closing the stream immediately is paced with a capped backoff instead of a reconnect storm, and Stop still
+  cancels promptly during a wait. Thanks @Ejmathewp. (#7978 by @Ejmathewp)
 
 - **Background git operations no longer pop up a credential-manager login window.** The update check and workspace
   git actions already turned off terminal and askpass prompts, but Git Credential Manager has its own interaction switch,
