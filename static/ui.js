@@ -7509,7 +7509,32 @@ function _mergeUsageForCtxIndicator(latest, fallback){
 }
 
 // Context usage indicator in composer footer
+// The resolved input the meter was last painted from, scoped to the profile and
+// session it belongs to. A locale repaint reuses this snapshot instead of
+// S.lastUsage: the latter can be incomplete or stale (a restored session, or a
+// context-window change in settings) and re-feeding it rewrites the meter — and
+// the compression threshold — with older numbers (#7697 review).
+let _ctxIndicatorSnapshot=null;
+let _ctxIndicatorSnapshotScope='';
+
+function _ctxIndicatorScopeKey(){
+  const profile=(typeof S!=='undefined'&&S&&S.activeProfile)?String(S.activeProfile):'';
+  const sid=(typeof S!=='undefined'&&S&&S.session&&S.session.session_id)?String(S.session.session_id):'';
+  return profile+'|'+sid;
+}
+
+function _repaintCtxIndicatorFromSnapshot(){
+  if(!_ctxIndicatorSnapshot) return false;
+  if(_ctxIndicatorScopeKey()!==_ctxIndicatorSnapshotScope) return false;
+  _syncCtxIndicator(_ctxIndicatorSnapshot);
+  return true;
+}
+
 function _syncCtxIndicator(usage){
+  if(usage&&typeof usage==='object'){
+    _ctxIndicatorSnapshot={...usage};
+    _ctxIndicatorSnapshotScope=_ctxIndicatorScopeKey();
+  }
   const wrap=$('ctxIndicatorWrap');
   const el=$('ctxIndicator');
   if(!el)return;
@@ -15926,9 +15951,12 @@ function _restoreCompressionPlaceholder(){
   }
   // A locale-derived placeholder (idle / busy hint) must come back in the
   // CURRENT locale: restoring the saved string verbatim would resurrect the
-  // language the user has since switched away from. Reuse the canonical
-  // placeholder pass (clear of the compression marker, so it recomputes) —
-  // that keeps the clarify-lock and draft guards in one place.
+  // language the user has since switched away from. Write the current-locale
+  // idle text first: the canonical pass below declines while an attachment or
+  // draft is staged (#5144 guard), and without this the compression guidance
+  // would outlive compression as a stale, visible instruction. The pass then
+  // upgrades it to the clarify prompt / busy hint when one applies.
+  _input.placeholder=(typeof t==='function')?t('composer_placeholder_idle',assistantDisplayName()):('Message '+assistantDisplayName()+'\u2026');
   _applyBusyComposerPlaceholder();
 }
 function clearCompressionUi(){

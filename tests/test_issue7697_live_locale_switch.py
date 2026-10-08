@@ -184,6 +184,13 @@ def main():
                     _applyReasoningChip('medium', {supported_efforts: ['low','medium','high']});
                   }
 
+                  // Real usage events paint the meter first; the locale switch must
+                  // then repaint it from that resolved snapshot (never from
+                  // S.lastUsage, which a restore or a settings change leaves stale).
+                  if (typeof _syncCtxIndicator === 'function' && typeof S !== 'undefined' && S.lastUsage) {
+                    _syncCtxIndicator(S.lastUsage);
+                  }
+
                   // The single code path under test: setLocale + applyLocaleToDOM
                   // (which must repaint every dynamic surface from cached state).
                   setLocale(lang);
@@ -328,6 +335,20 @@ def main():
                   if (msg.placeholder !== idle())
                     fail.push(`[compression/queued] stale guidance survived clearing the draft: ${JSON.stringify(msg.placeholder)}`);
 
+                  // An attachment staged while compression ran keeps the composer
+                  // "with content" (the busy pass declines), so completion must
+                  // still replace the guidance: it is visible while the textarea
+                  // is empty, and it is false once compression has finished.
+                  S.pendingFiles = [{name: 'staged.txt'}];
+                  setCompressionUi({automatic:true, phase:'running', sessionId:sid});
+                  setCompressionUi({automatic:true, phase:'done', sessionId:sid});
+                  if (msg.placeholder === hint())
+                    fail.push(`[compression/attachment] the guidance outlived compression: ${JSON.stringify(msg.placeholder)}`);
+                  if (msg.placeholder !== idle())
+                    fail.push(`[compression/attachment] expected the idle placeholder ${JSON.stringify(idle())}, got ${JSON.stringify(msg.placeholder)}`);
+                  S.pendingFiles = [];
+                  updateSendBtn();
+
                   clearCompressionUi();
                   setLocale('en');
                   applyLocaleToDOM();
@@ -359,6 +380,45 @@ def main():
                       fail.push(`[chip/${lang}] the English prefix leaked into the accessible name: ${JSON.stringify(aria)}`);
                   }
                   setLocale('en');
+                  return fail;
+                }"""
+            )
+            failures.extend(r)
+
+            # 8) A locale repaint must repaint the context meter from the input it
+            #    was painted with, never from S.lastUsage: a restored session or a
+            #    context-window change in settings leaves S.lastUsage stale, and
+            #    re-feeding it rewrites the percentage and the compression
+            #    threshold with older numbers (#7697 review).
+            r = page.evaluate(
+                """() => {
+                  const fail = [];
+                  const txt = id => { const el = document.getElementById(id); return el ? String(el.textContent || '').trim() : null; };
+                  setLocale('en');
+                  applyLocaleToDOM();
+                  // Resolved input: 1M window, 120K prompt → 12%, threshold 800K.
+                  S.lastUsage = {
+                    last_prompt_tokens: 120000, context_length: 1000000,
+                    threshold_tokens: 800000, input_tokens: 0, output_tokens: 0,
+                  };
+                  _syncCtxIndicator(S.lastUsage);
+                  const painted = txt('ctxTooltipUsage');
+                  if (!/12% used/.test(String(painted)))
+                    fail.push(`[ctx-snapshot] setup did not paint 12%: ${JSON.stringify(painted)}`);
+                  // Poison S.lastUsage the way a restore / stale poll leaves it.
+                  S.lastUsage = {last_prompt_tokens: 120000, context_length: 200000};
+                  setLocale('ru');
+                  applyLocaleToDOM();
+                  const after = String(txt('ctxTooltipUsage') || '');
+                  const thr = String(txt('ctxTooltipThreshold') || '');
+                  if (!/использовано 12%/.test(after))
+                    fail.push(`[ctx-snapshot] locale repaint used stale usage: ${JSON.stringify(after)}`);
+                  if (!/800\\.0k/.test(thr))
+                    fail.push(`[ctx-snapshot] locale repaint rewrote the threshold: ${JSON.stringify(thr)}`);
+                  // And the repaint stays localized (the RU pass still applies).
+                  if (!after.startsWith('Контекстное окно')) fail.push(`[ctx-snapshot] not localized after repaint: ${JSON.stringify(after)}`);
+                  setLocale('en');
+                  applyLocaleToDOM();
                   return fail;
                 }"""
             )

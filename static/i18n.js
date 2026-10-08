@@ -27842,8 +27842,13 @@ function applyLocaleToDOM() {
     if (typeof _applyReasoningChip === 'function' && typeof _currentReasoningEffort !== 'undefined' && _currentReasoningEffort !== null) {
       _applyReasoningChip(_currentReasoningEffort);
     }
-    if (typeof _syncCtxIndicator === 'function' && typeof S !== 'undefined' && S && S.lastUsage) {
-      _syncCtxIndicator(S.lastUsage);
+    // Repaint the context meter from the exact input it was painted with
+    // (scoped to the current profile/session). S.lastUsage can be incomplete or
+    // stale — a restored session, or a context-window change in settings — and
+    // re-feeding it during a repaint rewrites the percentage and the
+    // compression threshold with older numbers (#7697 review).
+    if (typeof _repaintCtxIndicatorFromSnapshot === 'function') {
+      _repaintCtxIndicatorFromSnapshot();
     }
     if (typeof renderSessionListFromCache === 'function') renderSessionListFromCache();
     // Placeholder last so the ACTIVE owner (clarify lock / auto-compression
