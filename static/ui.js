@@ -5523,7 +5523,11 @@ function _applyReasoningChip(eff){
   if(chip){
     const inactive=!effort||effort==='none';
     chip.classList.toggle('inactive',inactive);
-    const labelText='Reasoning effort: '+text;
+    // The visible effort text above is localized; the accessible name has to
+    // follow it or a non-English locale still announces an English prefix
+    // (#7697 review). reasoning_effort_title exists in every bundle.
+    const _lbl=(typeof t==='function')?t('reasoning_effort_title',text):null;
+    const labelText=(_lbl&&_lbl!=='reasoning_effort_title')?_lbl:('Reasoning effort: '+text);
     chip.title=labelText;
     chip.setAttribute('aria-label',labelText);
   }
@@ -8663,7 +8667,36 @@ function getComposerPrimaryAction(){
   return 'queue';
 }
 
-function _applyBusyComposerPlaceholder(){
+// The localized auto-compression guidance. Single source so the hint shown when
+// compression starts and the one re-shown after a live locale switch cannot
+// drift apart (#7697 review).
+function _compressionPlaceholderText(){
+  const fallback='Type a message — it will queue and send after compression';
+  return (typeof t==='function')?(t('composer_compression_will_queue')||fallback):fallback;
+}
+
+// Single owner of the composer placeholder. Precedence:
+//   1. clarify-style lock  (_composerLockState.text — a live user prompt)
+//   2. auto-compression guidance (while _compressionPlaceholderSaved!==null)
+//   3. busy hint / idle placeholder (delegated to _applyBusyComposerPlaceholder)
+// Every locale repaint goes through here, so switching language while an
+// instruction is active repaints THAT instruction instead of replacing it with
+// the idle text (#7697 review).
+function _refreshComposerPlaceholder(force){
+  const input=$('msg');
+  if(!input) return;
+  if(_composerLockState){
+    const lockedText=typeof _composerLockState.text==='string'?_composerLockState.text:_composerLockState.placeholder;
+    if(typeof lockedText==='string'){ input.placeholder=lockedText; return; }
+  }
+  if(_compressionPlaceholderSaved!==null){
+    input.placeholder=_compressionPlaceholderText();
+    return;
+  }
+  _applyBusyComposerPlaceholder(force);
+}
+
+function _applyBusyComposerPlaceholder(force){
   const input=$('msg');
   if(!input) return;
   if(_compressionPlaceholderSaved!==null) return;
@@ -8676,8 +8709,8 @@ function _applyBusyComposerPlaceholder(){
     if(typeof lockedText==='string') input.placeholder=lockedText;
     return;
   }
-  if(input.disabled) return;
-  if(_composerHasContent()) return;
+  if(!force&&input.disabled) return;
+  if(!force&&_composerHasContent()) return;
   const idlePlaceholder=(typeof t==='function')?t('composer_placeholder_idle',assistantDisplayName()):('Message '+assistantDisplayName()+'\u2026');
   if(!window._showBusyPlaceholderHint||!S.busy){
     input.placeholder=idlePlaceholder;
@@ -15403,11 +15436,22 @@ function isCompressionUiRunning(){
 // non-running setCompressionUi, or a direct window._compressionUi=null in the
 // SSE handler) — it no-ops when nothing was saved. (#3512)
 function _restoreCompressionPlaceholder(){
-  const _input=$('msg');
-  if(_input&&typeof _compressionPlaceholderSaved==='string'){
-    _input.placeholder=_compressionPlaceholderSaved;
-  }
+  if(_compressionPlaceholderSaved===null) return;
+  const saved=_compressionPlaceholderSaved;
   _compressionPlaceholderSaved=null;
+  const _input=$('msg');
+  if(!_input) return;
+  if(saved===''){
+    // An explicitly empty placeholder stays empty instead of gaining idle text
+    // that was never there.
+    _input.placeholder='';
+    return;
+  }
+  // Never restore the pre-compression text verbatim: after a live locale switch
+  // it is written in the OLD language. Recompute from the current state/locale
+  // (clarify lock > busy hint > idle) instead. `force` keeps a stale hint from
+  // resurfacing when the composer still holds text the user queued (#7697 review).
+  _refreshComposerPlaceholder(true);
 }
 function clearCompressionUi(){
   window._compressionUi=null;
@@ -15432,7 +15476,7 @@ function setCompressionUi(state){
     const _input=$('msg');
     if(_input&&_compressionPlaceholderSaved===null){
       _compressionPlaceholderSaved=_input.placeholder;
-      _input.placeholder=typeof t==='function'?t('composer_compression_will_queue')||'Type a message — it will queue and send after compression':'Type a message — it will queue and send after compression';
+      _input.placeholder=_compressionPlaceholderText();
     }
   } else {
     _clearCompressionElapsedTimer();

@@ -22,10 +22,31 @@ BASE = f"http://127.0.0.1:{PORT}"
 BENIGN = ["favicon", "manifest.json", "serviceworker", "sw.js",
           "the server responded with a status of 404"]
 
+# Console errors that only mean "this sandbox has no network": the real app
+# references a few external assets (fonts/CDN) that simply cannot resolve
+# offline. Only NON-app-origin failures are forgiven — an offline error on the
+# app's own origin, or any other console error, still fails the run.
+OFFLINE_NET_MARKERS = (
+    "net::ERR_INTERNET_DISCONNECTED",
+    "net::ERR_NAME_NOT_RESOLVED",
+    "net::ERR_ADDRESS_UNREACHABLE",
+    "net::ERR_CONNECTION_REFUSED",
+    "net::ERR_CONNECTION_RESET",
+    "net::ERR_PROXY_CONNECTION_FAILED",
+    "net::ERR_NETWORK_CHANGED",
+)
+
 
 def _is_benign(text):
     t = text.lower()
     return any(p.lower() in t for p in BENIGN)
+
+
+def _is_offline_external(text, url):
+    """True for an offline network failure against a non-app origin."""
+    if not any(m in text for m in OFFLINE_NET_MARKERS):
+        return False
+    return not str(url or "").startswith(BASE)
 
 
 def main():
@@ -97,9 +118,16 @@ def main():
             ctx = browser.new_context(base_url=BASE)
             page = ctx.new_page()
             errors = []
-            page.on("console", lambda m: errors.append(("console", m.text))
-                    if m.type == "error" else None)
-            page.on("pageerror", lambda e: errors.append(("pageerror", str(e))))
+
+            def _on_console(msg):
+                if msg.type != "error":
+                    return
+                loc = getattr(msg, "location", None) or {}
+                url = loc.get("url", "") if isinstance(loc, dict) else ""
+                errors.append(("console", msg.text, url))
+
+            page.on("console", _on_console)
+            page.on("pageerror", lambda e: errors.append(("pageerror", str(e), "")))
 
             page.goto("/", wait_until="domcontentloaded")
             page.wait_for_selector("#msg", timeout=15000)
@@ -244,8 +272,99 @@ def main():
             )
             failures.extend(r)
 
-            meaningful = [(k, t) for (k, t) in errors if not _is_benign(t)]
-            for kind, txt in meaningful:
+            # 6) The auto-compression guidance is a LIVE instruction: a language
+            #    switch while compression runs must re-localize it (not replace it
+            #    with the idle text), and completion must recompute in the CURRENT
+            #    locale instead of resurrecting the pre-compression text.
+            r = page.evaluate(
+                """() => {
+                  const fail = [];
+                  const msg = document.getElementById('msg');
+                  const sid = (S.session && S.session.session_id) || 'locale-test';
+                  const hint = () => t('composer_compression_will_queue') || '';
+                  const idle = () => t('composer_placeholder_idle', assistantDisplayName());
+
+                  setLocale('en');
+                  applyLocaleToDOM();
+                  const enIdle = idle();
+
+                  setCompressionUi({automatic:true, phase:'running', sessionId:sid});
+                  if (msg.placeholder !== hint())
+                    fail.push(`[compression/en-start] expected ${JSON.stringify(hint())}, got ${JSON.stringify(msg.placeholder)}`);
+
+                  setLocale('ru');
+                  applyLocaleToDOM();
+                  if (msg.placeholder !== hint())
+                    fail.push(`[compression/ru-live] expected the RU guidance ${JSON.stringify(hint())}, got ${JSON.stringify(msg.placeholder)}`);
+                  if (msg.placeholder === idle())
+                    fail.push('[compression/ru-live] the RU idle placeholder replaced the active guidance');
+
+                  setLocale('en');
+                  applyLocaleToDOM();
+                  if (msg.placeholder !== hint())
+                    fail.push(`[compression/en-live] expected ${JSON.stringify(hint())}, got ${JSON.stringify(msg.placeholder)}`);
+
+                  setCompressionUi({automatic:true, phase:'done', sessionId:sid});
+                  if (msg.placeholder !== idle())
+                    fail.push(`[compression/en-done] expected the EN idle placeholder ${JSON.stringify(idle())}, got ${JSON.stringify(msg.placeholder)}`);
+
+                  setCompressionUi({automatic:true, phase:'running', sessionId:sid});
+                  setLocale('ru');
+                  applyLocaleToDOM();
+                  setCompressionUi({automatic:true, phase:'done', sessionId:sid});
+                  if (msg.placeholder !== idle())
+                    fail.push(`[compression/ru-done] expected the RU idle placeholder ${JSON.stringify(idle())}, got ${JSON.stringify(msg.placeholder)}`);
+                  if (msg.placeholder === enIdle)
+                    fail.push('[compression/ru-done] the pre-compression EN text came back');
+
+                  // A message typed while compression ran must not leave the stale
+                  // guidance behind once compression finishes.
+                  msg.value = 'queued while compressing';
+                  setCompressionUi({automatic:true, phase:'running', sessionId:sid});
+                  setCompressionUi({automatic:true, phase:'done', sessionId:sid});
+                  msg.value = '';
+                  if (msg.placeholder !== idle())
+                    fail.push(`[compression/queued] stale guidance survived completion: ${JSON.stringify(msg.placeholder)}`);
+
+                  clearCompressionUi();
+                  setLocale('en');
+                  applyLocaleToDOM();
+                  return fail;
+                }"""
+            )
+            failures.extend(r)
+
+            # 7) The reasoning chip's accessible name (title + aria-label) must
+            #    follow the locale; the English prefix used to leak into RU.
+            r = page.evaluate(
+                """() => {
+                  const fail = [];
+                  const chip = document.getElementById('composerReasoningChip');
+                  if (!chip) return ['[chip] #composerReasoningChip is missing'];
+                  for (const lang of ['en', 'ru', 'en']) {
+                    setLocale(lang);
+                    _applyReasoningChip('medium', {supported_efforts: ['low', 'medium', 'high']});
+                    const expected = t('reasoning_effort_title', t('reasoning_effort_medium'));
+                    if (expected === 'reasoning_effort_title')
+                      fail.push(`[chip/${lang}] reasoning_effort_title is missing from this bundle`);
+                    const title = String(chip.title || '');
+                    const aria = String(chip.getAttribute('aria-label') || '');
+                    if (title !== expected)
+                      fail.push(`[chip/${lang}] title: expected ${JSON.stringify(expected)}, got ${JSON.stringify(title)}`);
+                    if (aria !== expected)
+                      fail.push(`[chip/${lang}] aria-label: expected ${JSON.stringify(expected)}, got ${JSON.stringify(aria)}`);
+                    if (lang !== 'en' && /^Reasoning effort/.test(aria))
+                      fail.push(`[chip/${lang}] the English prefix leaked into the accessible name: ${JSON.stringify(aria)}`);
+                  }
+                  setLocale('en');
+                  return fail;
+                }"""
+            )
+            failures.extend(r)
+
+            meaningful = [(k, t, u) for (k, t, u) in errors
+                          if not _is_benign(t) and not _is_offline_external(t, u)]
+            for kind, txt, _url in meaningful:
                 failures.append(f"[runtime] {kind}: {txt}")
 
             browser.close()

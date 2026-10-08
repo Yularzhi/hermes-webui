@@ -27607,7 +27607,14 @@ function applyLocaleToDOM() {
       _syncCtxIndicator(S.lastUsage);
     }
     if (typeof renderSessionListFromCache === 'function') renderSessionListFromCache();
-    if (typeof _applyBusyComposerPlaceholder === 'function') _applyBusyComposerPlaceholder();
+    // Placeholder last so the ACTIVE owner (clarify lock / auto-compression
+    // guidance / busy hint) wins over the idle text written above, and so a
+    // running compression instruction is re-localized instead of replaced.
+    if (typeof _refreshComposerPlaceholder === 'function') {
+      _refreshComposerPlaceholder();
+    } else if (typeof _applyBusyComposerPlaceholder === 'function') {
+      _applyBusyComposerPlaceholder();
+    }
   } catch (e) { /* best-effort repaint */ }
 }
 
