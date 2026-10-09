@@ -424,6 +424,34 @@ def main():
             )
             failures.extend(r)
 
+            # 9) A repaint while an attachment is staged must keep the assistant-name
+            #    personalization: the declarative pass writes the static
+            #    index.html placeholder first, and the busy pass declines on the
+            #    content guard, so the personalized idle text has to be written
+            #    before delegating (#7697 review).
+            r = page.evaluate(
+                """() => {
+                  const fail = [];
+                  const msg = document.getElementById('msg');
+                  S.activeProfile = 'default';
+                  window._botName = 'GateBot';
+                  if (typeof applyBotName === 'function') applyBotName();
+                  const personalized = 'Message GateBot…';
+                  if (msg.placeholder !== personalized)
+                    fail.push(`[idle-name] setup: expected ${JSON.stringify(personalized)}, got ${JSON.stringify(msg.placeholder)}`);
+                  S.pendingFiles = [{name: 'staged.txt'}];
+                  applyLocaleToDOM();
+                  if (msg.placeholder !== personalized)
+                    fail.push(`[idle-name] repaint dropped the assistant name: ${JSON.stringify(msg.placeholder)}`);
+                  S.pendingFiles = [];
+                  window._botName = 'Hermes';
+                  applyBotName();
+                  updateSendBtn();
+                  return fail;
+                }"""
+            )
+            failures.extend(r)
+
             meaningful = [(k, t, u) for (k, t, u) in errors
                           if not _is_benign(t) and not _is_offline_external(t, u)]
             for kind, txt, _url in meaningful:

@@ -9177,6 +9177,12 @@ function _refreshComposerPlaceholder(){
     input.placeholder=_compressionPlaceholderText();
     return;
   }
+  // The declarative pass stamps the static index.html placeholder first, and
+  // the busy pass below declines while the composer "has content" (which counts
+  // staged attachments). Write the localized, profile-aware idle text here so a
+  // repaint in that state cannot drop the assistant-name personalization
+  // (#7697 review).
+  input.placeholder=(typeof t==='function')?t('composer_placeholder_idle',assistantDisplayName()):('Message '+assistantDisplayName()+'\u2026');
   _applyBusyComposerPlaceholder();
 }
 
